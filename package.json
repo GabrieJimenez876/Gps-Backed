@@ -1,0 +1,30 @@
+{
+  "name": "gps-backed",
+  "version": "1.0.0",
+  "description": "Este proyecto tiene como objetivo desarrollar una **aplicación móvil y web** para visualizar rutas de **minibuses en La Paz**, Bolivia, utilizando tecnologías modernas, evitando el uso de PHP y MySQL.",
+  "main": "index.js",
+  "scripts": {
+    "start": "concurrently \"npm:auth\" \"npm:lines\" \"npm:routes\"",
+    "auth": "npx kill-port 4001 --silent&&node auth-service/server.js",
+    "lines": "npx kill-port 4002 --silent&&set PGUSER=postgres&&set PGPASSWORD=1234&&node lines-service/server.js",
+    "routes": "npx kill-port 4003 --silent&&set PGUSER=postgres&&set PGPASSWORD=1234&&node routes-service/server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GabrieJimenez876/Gps-Backed.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/GabrieJimenez876/Gps-Backed/issues"
+  },
+  "homepage": "https://github.com/GabrieJimenez876/Gps-Backed#readme",
+  "dependencies": {
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
