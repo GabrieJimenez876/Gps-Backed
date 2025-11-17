@@ -1,0 +1,8 @@
+{
+  "DB_TYPE": "postgres",
+  "PGHOST": "localhost",
+  "PGPORT": 5432,
+  "PGDATABASE": "gps_app_db",
+  "PGUSER": "postgres",
+  "PGPASSWORD": "yourpassword"
+}

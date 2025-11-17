@@ -135,3 +135,39 @@ Agrega aquí imágenes de la app Flutter, mapa web, backend, etc.
 
 📝 Licencia
 Este proyecto es de código abierto bajo la licencia MIT.
+
+## 📂 Nueva base de datos (DBML + SQL)
+
+He añadido una definición DBML y scripts SQL en la carpeta `db/` para la nueva estructura solicitada (tablas: persona, usuario, rol, usuario_rol, sindicato, linea, recorrido, vehiculo, parada, reporte, asignacion_vehiculo).
+
+Archivos añadidos:
+- `db/schema.dbml` — la definición DBML tal como la solicitaste.
+- `db/schema.sql` — script PostgreSQL para crear las tablas y relaciones.
+- `db/seed.sql` — datos de ejemplo para poblar roles, personas, usuarios, sindicatos, líneas, recorridos, paradas, vehículos, asignaciones y reportes.
+- `config/db_config.example.json` — ejemplo de configuración de conexión.
+
+Instrucciones rápidas (PostgreSQL):
+
+1) Crear la base de datos y activar PostGIS si la necesitas:
+
+```powershell
+psql -U postgres -c "CREATE DATABASE gps_app_db;"
+psql -U postgres -d gps_app_db -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+```
+
+2) Ejecutar el schema (ajusta host/usuario/contraseña según tu entorno):
+
+```powershell
+psql -U postgres -d gps_app_db -f db/schema.sql
+psql -U postgres -d gps_app_db -f db/seed.sql
+```
+
+3) Conectar el frontend `GPs-Fronted` (o el frontend de este repo) usando las credenciales en `config/db_config.example.json` (cópialo a `config/db_config.json` o usa variables de entorno según el frontend).
+
+Notas:
+- Los `password_hash` en `db/seed.sql` son marcadores de posición; reemplaza por hashes reales antes de usar en producción.
+- Si usas SQLite para pruebas locales, necesitarás adaptar `db/schema.sql` (Postgres -> SQLite difiere en tipos y restricciones).
+
+Si quieres, puedo:
+- Añadir un script `db/init_db.py` que ejecute los scripts automáticamente (Postgres o SQLite).
+- Integrar la configuración en el frontend `GPs-Fronted` (crear archivo de ejemplo o variables de entorno) y actualizar los endpoints.

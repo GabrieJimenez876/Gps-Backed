@@ -1,0 +1,188 @@
+// DBML generated from the user's specification
+
+Table PERSONA {
+  id_persona int [pk]
+  cedula varchar [unique]
+  nombres varchar
+  apellidos varchar
+  telefono varchar
+  email varchar
+  direccion text
+  fecha_nacimiento date
+  creado_en datetime
+  creado_por int
+  modificado_en datetime
+  modificado_por int
+  estado boolean [default: true]
+}
+
+Table USUARIO {
+  id_usuario int [pk]
+  id_persona int [unique, not null]
+  username varchar [unique]
+  password_hash varchar
+  ultimo_login datetime
+  creado_en datetime
+  creado_por int
+  modificado_en datetime
+  modificado_por int
+  estado boolean [default: true]
+}
+
+Table ROL {
+  id_rol int [pk]
+  nombre_rol varchar [unique]
+  descripcion text
+  creado_en datetime
+  creado_por int
+  modificado_en datetime
+  modificado_por int
+  estado boolean [default: true]
+}
+
+Table USUARIO_ROL {
+  id_usuario_rol int [pk]
+  id_usuario int [not null]
+  id_rol int [not null]
+  creado_en datetime
+  creado_por int
+  modificado_en datetime
+  modificado_por int
+  estado boolean [default: true]
+}
+
+Table SINDICATO {
+  id_sindicato int [pk]
+  nombre varchar [unique]
+  contacto varchar
+  direccion text
+  creado_en datetime
+  creado_por int
+  modificado_en datetime
+  modificado_por int
+  estado boolean [default: true]
+}
+
+Table LINEA {
+  id_linea int [pk]
+  id_sindicato int [not null]
+  nombre varchar
+  codigo varchar [unique]
+  color_argb varchar
+  creado_en datetime
+  creado_por int
+  modificado_en datetime
+  modificado_por int
+  estado boolean [default: true]
+}
+
+Table RECORRIDO {
+  id_recorrido int [pk]
+  id_linea int [not null]
+  nombre varchar
+  sentido varchar [note: 'IDA/VUELTA']
+  creado_en datetime
+  creado_por int
+  modificado_en datetime
+  modificado_por int
+  estado boolean [default: true]
+}
+
+Table VEHICULO {
+  id_vehiculo int [pk]
+  id_linea int [not null]
+  placa varchar [unique]
+  tipo varchar
+  capacidad int
+  modelo varchar
+  marca varchar
+  ano int
+  creado_en datetime
+  creado_por int
+  modificado_en datetime
+  modificado_por int
+  estado boolean [default: true]
+}
+
+Table PARADA {
+  id_parada int [pk]
+  id_recorrido int [not null]
+  nombre varchar
+  lat decimal(10, 8)
+  lon decimal(11, 8)
+  secuencia int
+  tipo_parada varchar [note: 'INICIO/INTERMEDIA/FIN']
+  creado_en datetime
+  creado_por int
+  modificado_en datetime
+  modificado_por int
+  estado boolean [default: true]
+}
+
+Table REPORTE {
+  id_reporte int [pk]
+  id_usuario int [not null]
+  id_linea int
+  id_recorrido int
+  id_vehiculo int
+  tipo_reporte varchar [note: 'INCIDENCIA, SUGERENCIA, PROBLEMA']
+  descripcion text
+  estado_reporte varchar [default: 'PENDIENTE']
+  lat decimal(10, 8)
+  lon decimal(11, 8)
+  creado_en datetime
+  creado_por int
+  modificado_en datetime
+  modificado_por int
+  estado boolean [default: true]
+}
+
+Table ASIGNACION_VEHICULO {
+  id_asignacion int [pk]
+  id_vehiculo int [not null]
+  id_usuario int [not null, note: 'Chofer asignado']
+  fecha_asignacion date
+  fecha_fin date
+  creado_en datetime
+  creado_por int
+  modificado_en datetime
+  modificado_por int
+  estado boolean [default: true]
+}
+
+// Relaciones
+Ref: PERSONA.id_persona < USUARIO.id_persona
+Ref: USUARIO.id_usuario < USUARIO_ROL.id_usuario
+Ref: ROL.id_rol < USUARIO_ROL.id_rol
+Ref: USUARIO.id_usuario < REPORTE.id_usuario
+Ref: USUARIO.id_usuario < ASIGNACION_VEHICULO.id_usuario
+Ref: SINDICATO.id_sindicato < LINEA.id_sindicato
+Ref: LINEA.id_linea < RECORRIDO.id_linea
+Ref: LINEA.id_linea < VEHICULO.id_linea
+Ref: LINEA.id_linea < REPORTE.id_linea
+Ref: RECORRIDO.id_recorrido < PARADA.id_recorrido
+Ref: RECORRIDO.id_recorrido < REPORTE.id_recorrido
+Ref: VEHICULO.id_vehiculo < REPORTE.id_vehiculo
+Ref: VEHICULO.id_vehiculo < ASIGNACION_VEHICULO.id_vehiculo
+
+// Auditoría (creado_por / modificado_por)
+Ref: USUARIO.id_usuario < PERSONA.creado_por
+Ref: USUARIO.id_usuario < PERSONA.modificado_por
+Ref: USUARIO.id_usuario < ROL.creado_por
+Ref: USUARIO.id_usuario < ROL.modificado_por
+Ref: USUARIO.id_usuario < USUARIO_ROL.creado_por
+Ref: USUARIO.id_usuario < USUARIO_ROL.modificado_por
+Ref: USUARIO.id_usuario < SINDICATO.creado_por
+Ref: USUARIO.id_usuario < SINDICATO.modificado_por
+Ref: USUARIO.id_usuario < LINEA.creado_por
+Ref: USUARIO.id_usuario < LINEA.modificado_por
+Ref: USUARIO.id_usuario < RECORRIDO.creado_por
+Ref: USUARIO.id_usuario < RECORRIDO.modificado_por
+Ref: USUARIO.id_usuario < VEHICULO.creado_por
+Ref: USUARIO.id_usuario < VEHICULO.modificado_por
+Ref: USUARIO.id_usuario < PARADA.creado_por
+Ref: USUARIO.id_usuario < PARADA.modificado_por
+Ref: USUARIO.id_usuario < REPORTE.creado_por
+Ref: USUARIO.id_usuario < REPORTE.modificado_por
+Ref: USUARIO.id_usuario < ASIGNACION_VEHICULO.creado_por
+Ref: USUARIO.id_usuario < ASIGNACION_VEHICULO.modificado_por
