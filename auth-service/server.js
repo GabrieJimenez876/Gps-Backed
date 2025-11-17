@@ -1,172 +1,360 @@
 import express from 'express';
-import cors from 'cors';
-// ELIMINAMOS: import sqlite3 from 'sqlite3';
-// ELIMINAMOS: import {open} from 'sqlite';
-import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import cookieParser from 'cookie-parser';
+import bcrypt from 'bcryptjs';
+import cors from 'cors';
 import dotenv from 'dotenv';
-import { dirname, join } from 'path';
+import { Pool } from 'pg';
+import fs from 'fs';
+import path from 'path';
 import { fileURLToPath } from 'url';
-import pg from 'pg'; // <-- NUEVO: Importamos el driver de PostgreSQL
 
-// Cargar .env de forma robusta (independiente del cwd). Asume que .env está
-// en la raíz del proyecto (una carpeta arriba de auth-service).
-const __dirname = dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: join(__dirname, '..', '.env') });
-
-// DEBUG: imprimir estado de las variables de entorno relevantes (no imprimir la contraseña completa)
-console.log('ENV DEBUG ->', {
-  PG_HOST: process.env.PG_HOST,
-  PG_PORT: process.env.PG_PORT,
-  PG_USER: process.env.PG_USER,
-  PG_DATABASE: process.env.PG_DATABASE,
-  PG_PASSWORD_present: typeof process.env.PG_PASSWORD !== 'undefined' && process.env.PG_PASSWORD !== null && process.env.PG_PASSWORD !== '',
-  CORS_ORIGIN: process.env.CORS_ORIGIN,
-});
-
+// Configuration
+dotenv.config();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-app.use(express.json());
-app.use(cookieParser());
-app.use(cors({ origin: '*' }));
 
-// ELIMINAMOS: const DB_PATH = process.env.DB_PATH || '../data/app.db';
-const JWT_SECRET = process.env.JWT_SECRET || 'devsecret';
-
-// ------------------------------------------------------------------
-// NUEVA CONFIGURACIÓN DE CONEXIÓN CON POSTGRESQL
-// ------------------------------------------------------------------
-const { Pool } = pg; 
-
-const pool = new Pool({
-    user: process.env.PG_USER,
-    host: process.env.PG_HOST,
-    database: process.env.PG_DATABASE,
-    password: process.env.PG_PASSWORD,
-    port: process.env.PG_PORT,
-});
-
-// La función 'db' ahora devuelve el Pool, que usaremos para consultas.
-async function db(){
-  return pool;
-}
-// ------------------------------------------------------------------
-
-
-// bootstrap roles + admin on start
-(async()=>{
-  const conn = await db(); // conn es ahora el Pool de pg
-  
-  // 1. CREACIÓN DE TABLAS (Sintaxis de PostgreSQL con SERIAL PRIMARY KEY)
-  await conn.query(`
-    CREATE TABLE IF NOT EXISTS roles(id SERIAL PRIMARY KEY, nombre TEXT UNIQUE);
-    CREATE TABLE IF NOT EXISTS usuarios(id SERIAL PRIMARY KEY, username TEXT UNIQUE, password_hash TEXT, estado TEXT DEFAULT 'ACTIVO');
-    CREATE TABLE IF NOT EXISTS usuarios_roles(
-      usuario_id INTEGER REFERENCES usuarios(id), 
-      rol_id INTEGER REFERENCES roles(id), 
-      PRIMARY KEY(usuario_id, rol_id)
-    );
-  `);
-  
-  const roles = ['ADMIN','EDITOR','USUARIO'];
-  for(const r of roles){ 
-    // Usamos $1 y ON CONFLICT DO NOTHING (el equivalente a INSERT OR IGNORE)
-    await conn.query('INSERT INTO roles(nombre) VALUES ($1) ON CONFLICT DO NOTHING', [r]); 
-  }
-  
-  const adminUser = process.env.ADMIN_USER || 'admin';
-  const adminPass = process.env.ADMIN_PASS || 'admin123';
-  
-  // 2. SELECT y acceso al primer resultado (.rows[0])
-  const uRes = await conn.query('SELECT * FROM usuarios WHERE username=$1', [adminUser]);
-  const u = uRes.rows[0]; 
-
-  if(!u){
-    const hash = bcrypt.hashSync(adminPass, 10);
-    
-    // 3. INSERT con RETURNING id para obtener el ID de la nueva fila.
-    const insRes = await conn.query('INSERT INTO usuarios(username,password_hash) VALUES ($1,$2) RETURNING id', [adminUser, hash]);
-    const userId = insRes.rows[0].id; // El ID se obtiene de insRes.rows[0].id
-    
-    // Obtenemos el ID del rol de Admin
-    const adminRoleRes = await conn.query('SELECT id FROM roles WHERE nombre=$1', ['ADMIN']);
-    const adminRole = adminRoleRes.rows[0];
-    
-    // 4. Insertamos en la tabla relacional
-    await conn.query('INSERT INTO usuarios_roles(usuario_id,rol_id) VALUES ($1,$2)', [userId, adminRole.id]);
-    
-    console.log('Admin creado:', adminUser);
-  }
-})();
-
-function sign(user){
-  return jwt.sign({sub:user.id, username:user.username, role:user.role}, JWT_SECRET, {expiresIn:'2d'});
-}
-
-app.post('/login', async (req,res)=>{
-  const {username,password} = req.body||{};
-  const conn = await db();
-  
-  // CAMBIO AQUÍ: Usamos $1 y .rows[0] para SELECT
-  const uRes = await conn.query('SELECT * FROM usuarios WHERE username=$1', [username]);
-  const u = uRes.rows[0];
-  
-  if(!u) return res.status(401).send('Credenciales inválidas');
-  const ok = bcrypt.compareSync(password, u.password_hash||'');
-  if(!ok) return res.status(401).send('Credenciales inválidas');
-  
-  // CAMBIO AQUÍ: Usamos $1 y .rows[0] para SELECT
-  const roleRowRes = await conn.query('SELECT r.nombre FROM roles r JOIN usuarios_roles ur ON ur.rol_id=r.id WHERE ur.usuario_id=$1 LIMIT 1', [u.id]);
-  const roleRow = roleRowRes.rows[0];
-  
-  const token = sign({id:u.id, username:u.username, role: roleRow?.nombre || 'USUARIO'});
-  res.cookie('token', token, {httpOnly:true, sameSite:'Lax', secure:false, maxAge: 2*24*60*60*1000});
-  res.json({ok:true});
-});
-
-app.post('/logout', (req,res)=>{ res.clearCookie('token'); res.json({ok:true}); });
-
-// Endpoint para registrar nuevos usuarios
-app.post('/register', async (req, res) => {
-  const { username, password } = req.body || {};
-  if (!username || !password) return res.status(400).json({ error: 'username and password required' });
-
+// Load JWT Config
+const loadJWTConfig = () => {
   try {
-    const conn = await db();
-    // Verificar usuario existente
-    const existsRes = await conn.query('SELECT id FROM usuarios WHERE username=$1', [username]);
-    if (existsRes.rows[0]) {
-      return res.status(409).json({ error: 'Usuario ya existe' });
+    const configPath = path.join(__dirname, '..', 'config', 'jwt_config.json');
+    return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  } catch (error) {
+    console.warn('JWT config file not found, using defaults');
+    return {
+      JWT: {
+        SECRET_KEY: process.env.JWT_SECRET || 'cambiar-esta-clave-secreta',
+        ALGORITHM: 'HS256',
+        ACCESS_TOKEN_EXPIRE_MINUTES: 30,
+        REFRESH_TOKEN_EXPIRE_DAYS: 7,
+        ISSUER: 'gps-app-system'
+      }
+    };
+  }
+};
+
+const jwtConfig = loadJWTConfig();
+
+// Load DB Config
+const loadDBConfig = () => {
+  try {
+    const configPath = path.join(__dirname, '..', 'config', 'db_config.json');
+    return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  } catch (error) {
+    console.error('DB config file not found');
+    return null;
+  }
+};
+
+const dbConfig = loadDBConfig();
+
+// Database Pool
+const pool = new Pool({
+  host: dbConfig?.PGHOST || process.env.PGHOST || 'localhost',
+  port: dbConfig?.PGPORT || process.env.PGPORT || 5432,
+  database: dbConfig?.PGDATABASE || process.env.PGDATABASE || 'gps_app_db',
+  user: dbConfig?.PGUSER || process.env.PGUSER || 'postgres',
+  password: dbConfig?.PGPASSWORD || process.env.PGPASSWORD || 'password123'
+});
+
+pool.on('error', (err) => {
+  console.error('Unexpected error on idle client', err);
+});
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// JWT Helper Functions
+const generateTokens = (usuario) => {
+  const accessTokenExpiry = new Date();
+  accessTokenExpiry.setMinutes(
+    accessTokenExpiry.getMinutes() + (jwtConfig.JWT.ACCESS_TOKEN_EXPIRE_MINUTES || 30)
+  );
+
+  const refreshTokenExpiry = new Date();
+  refreshTokenExpiry.setDate(
+    refreshTokenExpiry.getDate() + (jwtConfig.JWT.REFRESH_TOKEN_EXPIRE_DAYS || 7)
+  );
+
+  const payload = {
+    id_usuario: usuario.id_usuario,
+    username: usuario.username,
+    id_persona: usuario.id_persona,
+    roles: usuario.roles || [],
+    exp: Math.floor(accessTokenExpiry.getTime() / 1000)
+  };
+
+  const accessToken = jwt.sign(
+    payload,
+    jwtConfig.JWT.SECRET_KEY,
+    {
+      algorithm: jwtConfig.JWT.ALGORITHM,
+      issuer: jwtConfig.JWT.ISSUER,
+      subject: usuario.id_usuario.toString()
+    }
+  );
+
+  const refreshPayload = {
+    id_usuario: usuario.id_usuario,
+    exp: Math.floor(refreshTokenExpiry.getTime() / 1000)
+  };
+
+  const refreshToken = jwt.sign(
+    refreshPayload,
+    jwtConfig.JWT.SECRET_KEY,
+    { algorithm: jwtConfig.JWT.ALGORITHM }
+  );
+
+  return { accessToken, refreshToken, expiresIn: jwtConfig.JWT.ACCESS_TOKEN_EXPIRE_MINUTES * 60 };
+};
+
+const verifyToken = (token) => {
+  try {
+    return jwt.verify(token, jwtConfig.JWT.SECRET_KEY, {
+      algorithms: [jwtConfig.JWT.ALGORITHM],
+      issuer: jwtConfig.JWT.ISSUER
+    });
+  } catch (error) {
+    return null;
+  }
+};
+
+// Middleware: Verify JWT
+const authenticateToken = (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  
+  if (!token) {
+    return res.status(401).json({ error: 'No token provided' });
+  }
+
+  const decoded = verifyToken(token);
+  if (!decoded) {
+    return res.status(403).json({ error: 'Invalid or expired token' });
+  }
+
+  req.user = decoded;
+  next();
+};
+
+// Routes
+
+// Health Check
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'auth-service',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Login
+app.post('/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password required' });
     }
 
-    // Crear usuario con hash
-    const hash = bcrypt.hashSync(password, 10);
-    const insRes = await conn.query('INSERT INTO usuarios(username,password_hash) VALUES ($1,$2) RETURNING id', [username, hash]);
-    const userId = insRes.rows[0].id;
+    const client = await pool.connect();
+    try {
+      // Fetch user with roles
+      const userResult = await client.query(`
+        SELECT 
+          u.id_usuario,
+          u.id_persona,
+          u.username,
+          u.password_hash,
+          u.estado,
+          p.nombres,
+          p.apellidos,
+          p.email,
+          array_agg(DISTINCT r.nombre_rol) as roles
+        FROM usuario u
+        JOIN persona p ON u.id_persona = p.id_persona
+        LEFT JOIN usuario_rol ur ON u.id_usuario = ur.id_usuario
+        LEFT JOIN rol r ON ur.id_rol = r.id_rol
+        WHERE u.username = $1 AND u.estado = true
+        GROUP BY u.id_usuario, p.id_persona
+      `, [username]);
 
-    // Asignar rol por defecto 'USUARIO' si existe
-    const roleRes = await conn.query('SELECT id FROM roles WHERE nombre=$1 LIMIT 1', ['USUARIO']);
-    const roleId = roleRes.rows[0]?.id;
-    if (roleId) {
-      await conn.query('INSERT INTO usuarios_roles(usuario_id,rol_id) VALUES ($1,$2)', [userId, roleId]);
+      if (userResult.rows.length === 0) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+
+      const usuario = userResult.rows[0];
+
+      // Verify password
+      const passwordValid = await bcrypt.compare(password, usuario.password_hash);
+      if (!passwordValid) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+
+      // Update last login
+      await client.query(
+        'UPDATE usuario SET ultimo_login = NOW() WHERE id_usuario = $1',
+        [usuario.id_usuario]
+      );
+
+      // Generate tokens
+      const tokens = generateTokens(usuario);
+
+      res.json({
+        success: true,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        expiresIn: tokens.expiresIn,
+        user: {
+          id_usuario: usuario.id_usuario,
+          id_persona: usuario.id_persona,
+          username: usuario.username,
+          nombres: usuario.nombres,
+          apellidos: usuario.apellidos,
+          email: usuario.email,
+          roles: usuario.roles.filter(r => r !== null)
+        }
+      });
+    } finally {
+      client.release();
     }
-
-    return res.status(201).json({ ok: true });
-  } catch (e) {
-    console.error('Error en /register:', e);
-    return res.status(500).json({ error: e.message });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Login failed' });
   }
 });
 
-function auth(req,res,next){
-  const token = req.cookies.token;
-  if(!token) return res.status(401).send('No autenticado');
-  try{ req.user = jwt.verify(token, JWT_SECRET); next(); }
-  catch{ return res.status(401).send('Sesión inválida'); }
-}
+// Refresh Token
+app.post('/auth/refresh', (req, res) => {
+  try {
+    const { refreshToken } = req.body;
 
-app.get('/me', auth, (req,res)=>{ res.json({username:req.user.username, role:req.user.role}); });
+    if (!refreshToken) {
+      return res.status(400).json({ error: 'Refresh token required' });
+    }
 
-const port = process.env.PORT||4001;
-// Bind explícito a 0.0.0.0 para asegurar accesibilidad vía IPv4 (evita problemas de binding IPv6-only)
-app.listen(port, '0.0.0.0', ()=> console.log(`Servidor auth-service escuchando en http://0.0.0.0:${port}`));
+    const decoded = verifyToken(refreshToken);
+    if (!decoded) {
+      return res.status(403).json({ error: 'Invalid refresh token' });
+    }
+
+    // Generate new access token
+    const payload = {
+      id_usuario: decoded.id_usuario,
+      exp: Math.floor((Date.now() + (jwtConfig.JWT.ACCESS_TOKEN_EXPIRE_MINUTES * 60 * 1000)) / 1000)
+    };
+
+    const newAccessToken = jwt.sign(
+      payload,
+      jwtConfig.JWT.SECRET_KEY,
+      { algorithm: jwtConfig.JWT.ALGORITHM }
+    );
+
+    res.json({
+      success: true,
+      accessToken: newAccessToken,
+      expiresIn: jwtConfig.JWT.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    });
+  } catch (error) {
+    console.error('Refresh token error:', error);
+    res.status(500).json({ error: 'Token refresh failed' });
+  }
+});
+
+// Verify Token
+app.post('/auth/verify', (req, res) => {
+  try {
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ error: 'Token required' });
+    }
+
+    const decoded = verifyToken(token);
+    if (!decoded) {
+      return res.status(403).json({ valid: false });
+    }
+
+    res.json({
+      valid: true,
+      user: decoded
+    });
+  } catch (error) {
+    console.error('Token verification error:', error);
+    res.status(403).json({ valid: false });
+  }
+});
+
+// Get Current User (Protected)
+app.get('/auth/me', authenticateToken, async (req, res) => {
+  try {
+    const client = await pool.connect();
+    try {
+      const result = await client.query(`
+        SELECT 
+          u.id_usuario,
+          u.id_persona,
+          u.username,
+          p.nombres,
+          p.apellidos,
+          p.email,
+          p.cedula,
+          p.telefono,
+          array_agg(DISTINCT r.nombre_rol) as roles
+        FROM usuario u
+        JOIN persona p ON u.id_persona = p.id_persona
+        LEFT JOIN usuario_rol ur ON u.id_usuario = ur.id_usuario
+        LEFT JOIN rol r ON ur.id_rol = r.id_rol
+        WHERE u.id_usuario = $1
+        GROUP BY u.id_usuario, p.id_persona
+      `, [req.user.id_usuario]);
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      const usuario = result.rows[0];
+      res.json({
+        id_usuario: usuario.id_usuario,
+        id_persona: usuario.id_persona,
+        username: usuario.username,
+        nombres: usuario.nombres,
+        apellidos: usuario.apellidos,
+        email: usuario.email,
+        cedula: usuario.cedula,
+        telefono: usuario.telefono,
+        roles: usuario.roles.filter(r => r !== null)
+      });
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error('Get user error:', error);
+    res.status(500).json({ error: 'Failed to fetch user' });
+  }
+});
+
+// Logout (optional - mainly client-side)
+app.post('/auth/logout', authenticateToken, (req, res) => {
+  // Token invalidation would be handled by client discarding token
+  // Or implement token blacklist if needed
+  res.json({ success: true, message: 'Logged out successfully' });
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+// Start Server
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
+  console.log(`\n${'='.repeat(60)}`);
+  console.log(`Auth Service running on http://localhost:${PORT}`);
+  console.log(`JWT Config: ${jwtConfig.JWT.ALGORITHM} - ${jwtConfig.JWT.ACCESS_TOKEN_EXPIRE_MINUTES}min expiry`);
+  console.log(`DB: ${dbConfig?.PGDATABASE || 'gps_app_db'}`);
+  console.log(`${'='.repeat(60)}\n`);
+});
+
+export default app;
+

@@ -1,0 +1,47 @@
+{
+  "JWT": {
+    "SECRET_KEY": "tu-clave-secreta-super-segura-cambiar-en-produccion-2024",
+    "ALGORITHM": "HS256",
+    "ACCESS_TOKEN_EXPIRE_MINUTES": 30,
+    "REFRESH_TOKEN_EXPIRE_DAYS": 7,
+    "ISSUER": "gps-app-system",
+    "AUDIENCE": "gps-app-users"
+  },
+  "SECURITY": {
+    "BCRYPT_ROUNDS": 12,
+    "CORS_ORIGINS": [
+      "http://localhost:3000",
+      "http://localhost:3001",
+      "http://localhost:8080",
+      "http://127.0.0.1:3000"
+    ],
+    "API_KEY_REQUIRED": true
+  },
+  "ROLES": {
+    "ADMIN": {
+      "id": 1,
+      "name": "ADMINISTRADOR",
+      "permissions": ["*"]
+    },
+    "MANAGER": {
+      "id": 2,
+      "name": "GERENTE",
+      "permissions": ["read:all", "write:lineas", "write:recorridos", "write:paradas"]
+    },
+    "DRIVER": {
+      "id": 3,
+      "name": "CHOFER",
+      "permissions": ["read:asignaciones", "read:recorrido", "write:localizacion", "write:reportes"]
+    },
+    "PASSENGER": {
+      "id": 4,
+      "name": "PASAJERO",
+      "permissions": ["read:lineas", "read:recorridos", "read:paradas", "write:reportes"]
+    },
+    "SUPERVISOR": {
+      "id": 5,
+      "name": "SUPERVISOR",
+      "permissions": ["read:all", "write:reportes"]
+    }
+  }
+}

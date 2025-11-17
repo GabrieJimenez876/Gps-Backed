@@ -1,9 +1,12 @@
 {
-  "name": "service",
+  "name": "auth-service",
   "version": "1.0.0",
   "type": "module",
+  "description": "Authentication service with JWT for GPS App",
+  "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "node --watch server.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -15,5 +18,4 @@
     "jsonwebtoken": "^9.0.2",
     "pg": "^8.16.3"
   }
-  
 }

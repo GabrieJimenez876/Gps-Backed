@@ -1,0 +1,92 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: gps_app_postgres
+    environment:
+      POSTGRES_DB: gps_app_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password123
+      POSTGRES_INITDB_ARGS: "-c timezone=UTC"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./db/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
+    networks:
+      - gps_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostGIS Extension (optional, if needed)
+  # postgis:
+  #   image: postgis/postgis:15-3.3-alpine
+  #   container_name: gps_app_postgis
+  #   environment:
+  #     POSTGRES_DB: gps_app_db
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: password123
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+
+  # Node.js Auth Service
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: gps_app_auth
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: gps_app_db
+      PGUSER: postgres
+      PGPASSWORD: password123
+      JWT_SECRET: tu-clave-secreta-super-segura-cambiar-en-produccion
+      PORT: 3001
+      NODE_ENV: development
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - gps_network
+    volumes:
+      - ./auth-service:/app
+      - /app/node_modules
+    command: npm start
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # pgAdmin (optional - database management UI)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: gps_app_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@gpsapp.local
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - gps_network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  gps_network:
+    driver: bridge
